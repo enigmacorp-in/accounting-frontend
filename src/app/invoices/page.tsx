@@ -43,7 +43,6 @@ interface InventoryItem {
   name: string;
   hsnCode: string;
   price: number;
-  taxRate: number;
 }
 
 const saleTypes = ['Central - 5%', 'Central - 18%', 'Central - 28%'] as const;
@@ -53,9 +52,6 @@ interface InvoiceItem {
   product: InventoryItem;
   quantity: number;
   price: number;
-  saleType: SaleType;
-  taxRate: number;
-  taxAmount: number;
   total: number;
 }
 
@@ -65,6 +61,8 @@ interface Invoice {
   client: Client;
   date: string;
   dueDate: string;
+  saleType: SaleType;
+  taxRate: number;
   items: InvoiceItem[];
   subtotal: number;
   totalTax: number;
@@ -77,12 +75,17 @@ export default function InvoicesPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [open, setOpen] = useState(false);
-  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   const [quantity, setQuantity] = useState<string>('1');
   const [selectedSaleType, setSelectedSaleType] = useState<SaleType>('Central - 18%');
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
+
+  useEffect(() => {
+    fetchInvoices();
+    fetchClients();
+    fetchInventory();
+  }, []);
 
   const fetchInvoices = async () => {
     try {
@@ -111,25 +114,86 @@ export default function InvoicesPage() {
     }
   };
 
-  useEffect(() => {
-    fetchInvoices();
-    fetchClients();
-    fetchInventory();
-  }, []);
-
   const handleOpen = () => {
     setOpen(true);
-    setSelectedClient(null);
-    setInvoiceItems([]);
   };
 
   const handleClose = () => {
     setOpen(false);
-    setEditingInvoice(null);
     setSelectedClient(null);
-    setInvoiceItems([]);
     setSelectedProduct(null);
     setQuantity('1');
+    setSelectedSaleType('Central - 18%');
+    setInvoiceItems([]);
+  };
+
+  const addInvoiceItem = () => {
+    if (!selectedProduct || !quantity) return;
+
+    const price = selectedProduct.price;
+    const qty = parseInt(quantity);
+    const total = price * qty;
+
+    const newItem: InvoiceItem = {
+      product: selectedProduct,
+      quantity: qty,
+      price,
+      total
+    };
+
+    setInvoiceItems([...invoiceItems, newItem]);
+    setSelectedProduct(null);
+    setQuantity('1');
+  };
+
+  const removeInvoiceItem = (index: number) => {
+    setInvoiceItems(invoiceItems.filter((_, i) => i !== index));
+  };
+
+  const calculateTotals = () => {
+    const subtotal = invoiceItems.reduce((sum, item) => sum + item.total, 0);
+    const taxRate = parseInt(selectedSaleType.split(' - ')[1].replace('%', ''));
+    const totalTax = (subtotal * taxRate) / 100;
+    const total = subtotal + totalTax;
+
+    return {
+      subtotal: Math.round(subtotal * 100) / 100,
+      totalTax: Math.round(totalTax * 100) / 100,
+      total: Math.round(total * 100) / 100
+    };
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClient || invoiceItems.length === 0) return;
+
+    const { subtotal, totalTax, total } = calculateTotals();
+    const taxRate = parseInt(selectedSaleType.split(' - ')[1].replace('%', ''));
+
+    try {
+      const invoiceData = {
+        client: selectedClient._id,
+        items: invoiceItems.map(item => ({
+          product: item.product._id,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.total
+        })),
+        saleType: selectedSaleType,
+        taxRate,
+        subtotal,
+        totalTax,
+        total,
+        date: new Date(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      };
+
+      await invoiceAPI.create(invoiceData);
+      handleClose();
+      fetchInvoices();
+    } catch (error) {
+      console.error('Error creating invoice:', error);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -151,73 +215,6 @@ export default function InvoicesPage() {
       window.open(url);
     } catch (error) {
       console.error('Error generating PDF:', error);
-    }
-  };
-
-  const addInvoiceItem = () => {
-    if (!selectedProduct || !quantity) return;
-
-    const qty = parseFloat(quantity);
-    const price = selectedProduct.price;
-    const taxRate = parseInt(selectedSaleType.split(' - ')[1]);
-    const taxAmount = (price * qty * taxRate) / 100;
-    const total = price * qty + taxAmount;
-
-    setInvoiceItems(prev => [...prev, {
-      product: selectedProduct,
-      quantity: qty,
-      price,
-      saleType: selectedSaleType,
-      taxRate,
-      taxAmount,
-      total,
-    }]);
-
-    setSelectedProduct(null);
-    setQuantity('1');
-  };
-
-  const removeInvoiceItem = (index: number) => {
-    setInvoiceItems(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const calculateTotals = () => {
-    const subtotal = invoiceItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const totalTax = invoiceItems.reduce((sum, item) => sum + item.taxAmount, 0);
-    const total = subtotal + totalTax;
-    return { subtotal, totalTax, total };
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedClient || invoiceItems.length === 0) return;
-
-    const { subtotal, totalTax, total } = calculateTotals();
-    const invoiceData = {
-      client: selectedClient._id,
-      date: new Date().toISOString(),
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-      items: invoiceItems.map(item => ({
-        product: item.product._id,
-        quantity: item.quantity,
-        price: item.price,
-        saleType: item.saleType,
-        taxRate: item.taxRate,
-        taxAmount: item.taxAmount,
-        total: item.total,
-      })),
-      subtotal,
-      totalTax,
-      total,
-      status: 'draft',
-    };
-
-    try {
-      await invoiceAPI.create(invoiceData);
-      handleClose();
-      fetchInvoices();
-    } catch (error) {
-      console.error('Error creating invoice:', error);
     }
   };
 
@@ -243,6 +240,7 @@ export default function InvoicesPage() {
                 <TableCell>Client</TableCell>
                 <TableCell>Date</TableCell>
                 <TableCell>Due Date</TableCell>
+                <TableCell>Sale Type</TableCell>
                 <TableCell>Amount</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Actions</TableCell>
@@ -255,6 +253,7 @@ export default function InvoicesPage() {
                   <TableCell>{invoice.client.name}</TableCell>
                   <TableCell>{format(new Date(invoice.date), 'dd/MM/yyyy')}</TableCell>
                   <TableCell>{format(new Date(invoice.dueDate), 'dd/MM/yyyy')}</TableCell>
+                  <TableCell>{invoice.saleType}</TableCell>
                   <TableCell>₹{invoice.total}</TableCell>
                   <TableCell>{invoice.status}</TableCell>
                   <TableCell>
@@ -291,6 +290,21 @@ export default function InvoicesPage() {
                 )}
               />
 
+              <TextField
+                select
+                label="Sale Type"
+                value={selectedSaleType}
+                onChange={(e) => setSelectedSaleType(e.target.value as SaleType)}
+                required
+                fullWidth
+              >
+                {saleTypes.map((type) => (
+                  <MenuItem key={type} value={type}>
+                    {type}
+                  </MenuItem>
+                ))}
+              </TextField>
+
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                 <Autocomplete
                   sx={{ flexGrow: 1 }}
@@ -315,19 +329,6 @@ export default function InvoicesPage() {
                     inputProps: { min: 1 }
                   }}
                 />
-                <TextField
-                  sx={{ width: 200 }}
-                  select
-                  label="Sale Type"
-                  value={selectedSaleType}
-                  onChange={(e) => setSelectedSaleType(e.target.value as SaleType)}
-                >
-                  {saleTypes.map((type) => (
-                    <MenuItem key={type} value={type}>
-                      {type}
-                    </MenuItem>
-                  ))}
-                </TextField>
                 <Button
                   variant="contained"
                   onClick={addInvoiceItem}
@@ -344,8 +345,6 @@ export default function InvoicesPage() {
                       <TableCell>Item</TableCell>
                       <TableCell align="right">Qty</TableCell>
                       <TableCell align="right">Price</TableCell>
-                      <TableCell align="right">Sale Type</TableCell>
-                      <TableCell align="right">Tax Amount</TableCell>
                       <TableCell align="right">Total</TableCell>
                       <TableCell align="right">Action</TableCell>
                     </TableRow>
@@ -356,8 +355,6 @@ export default function InvoicesPage() {
                         <TableCell>{item.product.name}</TableCell>
                         <TableCell align="right">{item.quantity}</TableCell>
                         <TableCell align="right">₹{item.price}</TableCell>
-                        <TableCell align="right">{item.saleType}</TableCell>
-                        <TableCell align="right">₹{item.taxAmount}</TableCell>
                         <TableCell align="right">₹{item.total}</TableCell>
                         <TableCell align="right">
                           <IconButton
@@ -373,7 +370,7 @@ export default function InvoicesPage() {
                     {invoiceItems.length > 0 && (
                       <>
                         <TableRow>
-                          <TableCell colSpan={4} />
+                          <TableCell colSpan={2} />
                           <TableCell align="right">Subtotal:</TableCell>
                           <TableCell align="right">
                             ₹{calculateTotals().subtotal}
@@ -381,15 +378,15 @@ export default function InvoicesPage() {
                           <TableCell />
                         </TableRow>
                         <TableRow>
-                          <TableCell colSpan={4} />
-                          <TableCell align="right">Total Tax:</TableCell>
+                          <TableCell colSpan={2} />
+                          <TableCell align="right">Tax ({selectedSaleType}):</TableCell>
                           <TableCell align="right">
                             ₹{calculateTotals().totalTax}
                           </TableCell>
                           <TableCell />
                         </TableRow>
                         <TableRow>
-                          <TableCell colSpan={4} />
+                          <TableCell colSpan={2} />
                           <TableCell align="right">
                             <strong>Total:</strong>
                           </TableCell>
