@@ -26,6 +26,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   PictureAsPdf as PdfIcon,
+  Visibility,
 } from '@mui/icons-material';
 import { invoiceAPI, clientAPI, inventoryAPI } from '@/services/api';
 import DashboardLayout from '../components/DashboardLayout';
@@ -80,6 +81,9 @@ export default function InvoicesPage() {
   const [quantity, setQuantity] = useState<string>('1');
   const [selectedSaleType, setSelectedSaleType] = useState<SaleType>('Central - 18%');
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     fetchInvoices();
@@ -218,6 +222,66 @@ export default function InvoicesPage() {
     }
   };
 
+  const handleView = (invoice: Invoice) => {
+    setSelectedInvoice(invoice);
+    setSelectedClient(invoice.client);
+    setSelectedSaleType(invoice.saleType);
+    setInvoiceItems(invoice.items);
+    setViewOpen(true);
+    setEditMode(false);
+  };
+
+  const handleEdit = (invoice: Invoice) => {
+    setSelectedInvoice(invoice);
+    setSelectedClient(invoice.client);
+    setSelectedSaleType(invoice.saleType);
+    setInvoiceItems(invoice.items);
+    setViewOpen(true);
+    setEditMode(true);
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClient || invoiceItems.length === 0 || !selectedInvoice) return;
+
+    const { subtotal, totalTax, total } = calculateTotals();
+    const taxRate = parseInt(selectedSaleType.split(' - ')[1].replace('%', ''));
+
+    try {
+      const invoiceData = {
+        client: selectedClient._id,
+        items: invoiceItems.map(item => ({
+          product: item.product._id,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.total
+        })),
+        saleType: selectedSaleType,
+        taxRate,
+        subtotal,
+        totalTax,
+        total
+      };
+
+      await invoiceAPI.update(selectedInvoice._id, invoiceData);
+      handleCloseView();
+      fetchInvoices();
+    } catch (error) {
+      console.error('Error updating invoice:', error);
+    }
+  };
+
+  const handleCloseView = () => {
+    setViewOpen(false);
+    setSelectedInvoice(null);
+    setSelectedClient(null);
+    setSelectedProduct(null);
+    setQuantity('1');
+    setSelectedSaleType('Central - 18%');
+    setInvoiceItems([]);
+    setEditMode(false);
+  };
+
   return (
     <DashboardLayout>
       <Box sx={{ mb: 4 }}>
@@ -257,6 +321,12 @@ export default function InvoicesPage() {
                   <TableCell>₹{invoice.total}</TableCell>
                   <TableCell>{invoice.status}</TableCell>
                   <TableCell>
+                    <IconButton onClick={() => handleView(invoice)} color="primary">
+                      <Visibility />
+                    </IconButton>
+                    <IconButton onClick={() => handleEdit(invoice)} color="primary">
+                      <EditIcon />
+                    </IconButton>
                     <IconButton onClick={() => handleGeneratePDF(invoice._id)} color="primary">
                       <PdfIcon />
                     </IconButton>
@@ -271,24 +341,195 @@ export default function InvoicesPage() {
         </TableContainer>
       </Box>
 
+      <Dialog open={viewOpen} onClose={handleCloseView} maxWidth="md" fullWidth>
+        <form onSubmit={handleUpdate}>
+          <DialogTitle>
+            {editMode ? 'Edit Invoice' : 'View Invoice'} {selectedInvoice?.invoiceNumber}
+          </DialogTitle>
+          <DialogContent>
+            <Box sx={{ display: 'grid', gap: 2, pt: 2 }}>
+              {editMode ? (
+                <Autocomplete
+                  options={clients}
+                  getOptionLabel={(client) => `${client.name} (${client.gstin})`}
+                  value={selectedClient}
+                  onChange={(_, newValue) => setSelectedClient(newValue)}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select Client"
+                      required
+                    />
+                  )}
+                />
+              ) : (
+                <TextField
+                  label="Client"
+                  value={selectedClient ? `${selectedClient.name} (${selectedClient.gstin})` : ''}
+                  fullWidth
+                  disabled
+                />
+              )}
+
+              <TextField
+                select
+                label="Sale Type"
+                value={selectedSaleType}
+                onChange={(e) => setSelectedSaleType(e.target.value as SaleType)}
+                required
+                fullWidth
+                disabled={!editMode}
+              >
+                {saleTypes.map((type) => (
+                  <MenuItem key={type} value={type}>
+                    {type}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              {editMode && (
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                  <Autocomplete
+                    sx={{ flexGrow: 1 }}
+                    options={inventory}
+                    getOptionLabel={(item) => `${item.name} (₹${item.price})`}
+                    value={selectedProduct}
+                    onChange={(_, newValue) => setSelectedProduct(newValue)}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Select Product"
+                      />
+                    )}
+                  />
+                  <TextField
+                    sx={{ width: 100 }}
+                    label="Quantity"
+                    type="number"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    InputProps={{
+                      inputProps: { min: 1 }
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    onClick={addInvoiceItem}
+                    disabled={!selectedProduct || !quantity}
+                  >
+                    Add Item
+                  </Button>
+                </Box>
+              )}
+
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Item</TableCell>
+                      <TableCell align="right">Qty</TableCell>
+                      <TableCell align="right">Price</TableCell>
+                      <TableCell align="right">Total</TableCell>
+                      {editMode && <TableCell align="right">Action</TableCell>}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {invoiceItems.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{item.product.name}</TableCell>
+                        <TableCell align="right">{item.quantity}</TableCell>
+                        <TableCell align="right">₹{item.price}</TableCell>
+                        <TableCell align="right">₹{item.total}</TableCell>
+                        {editMode && (
+                          <TableCell align="right">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => removeInvoiceItem(index)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                    {invoiceItems.length > 0 && (
+                      <>
+                        <TableRow>
+                          <TableCell colSpan={2} />
+                          <TableCell align="right">Subtotal:</TableCell>
+                          <TableCell align="right">
+                            ₹{calculateTotals().subtotal}
+                          </TableCell>
+                          {editMode && <TableCell />}
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={2} />
+                          <TableCell align="right">Tax ({selectedSaleType}):</TableCell>
+                          <TableCell align="right">
+                            ₹{calculateTotals().totalTax}
+                          </TableCell>
+                          {editMode && <TableCell />}
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={2} />
+                          <TableCell align="right">
+                            <strong>Total:</strong>
+                          </TableCell>
+                          <TableCell align="right">
+                            <strong>₹{calculateTotals().total}</strong>
+                          </TableCell>
+                          {editMode && <TableCell />}
+                        </TableRow>
+                      </>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseView}>Close</Button>
+            {editMode && (
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={!selectedClient || invoiceItems.length === 0}
+              >
+                Update Invoice
+              </Button>
+            )}
+          </DialogActions>
+        </form>
+      </Dialog>
+
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
         <form onSubmit={handleSubmit}>
           <DialogTitle>Create New Invoice</DialogTitle>
           <DialogContent>
             <Box sx={{ display: 'grid', gap: 2, pt: 2 }}>
-              <Autocomplete
-                options={clients}
-                getOptionLabel={(client) => `${client.name} (${client.gstin})`}
-                value={selectedClient}
-                onChange={(_, newValue) => setSelectedClient(newValue)}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Select Client"
-                    required
-                  />
-                )}
-              />
+              {editMode ? (
+                <Autocomplete
+                  options={clients}
+                  getOptionLabel={(client) => `${client.name} (${client.gstin})`}
+                  value={selectedClient}
+                  onChange={(_, newValue) => setSelectedClient(newValue)}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select Client"
+                      required
+                    />
+                  )}
+                />
+              ) : (
+                <TextField
+                  label="Client"
+                  value={selectedClient ? `${selectedClient.name} (${selectedClient.gstin})` : ''}
+                  fullWidth
+                  disabled
+                />
+              )}
 
               <TextField
                 select
@@ -346,7 +587,6 @@ export default function InvoicesPage() {
                       <TableCell align="right">Qty</TableCell>
                       <TableCell align="right">Price</TableCell>
                       <TableCell align="right">Total</TableCell>
-                      <TableCell align="right">Action</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -356,15 +596,6 @@ export default function InvoicesPage() {
                         <TableCell align="right">{item.quantity}</TableCell>
                         <TableCell align="right">₹{item.price}</TableCell>
                         <TableCell align="right">₹{item.total}</TableCell>
-                        <TableCell align="right">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => removeInvoiceItem(index)}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </TableCell>
                       </TableRow>
                     ))}
                     {invoiceItems.length > 0 && (
@@ -375,7 +606,6 @@ export default function InvoicesPage() {
                           <TableCell align="right">
                             ₹{calculateTotals().subtotal}
                           </TableCell>
-                          <TableCell />
                         </TableRow>
                         <TableRow>
                           <TableCell colSpan={2} />
@@ -383,7 +613,6 @@ export default function InvoicesPage() {
                           <TableCell align="right">
                             ₹{calculateTotals().totalTax}
                           </TableCell>
-                          <TableCell />
                         </TableRow>
                         <TableRow>
                           <TableCell colSpan={2} />
@@ -393,7 +622,6 @@ export default function InvoicesPage() {
                           <TableCell align="right">
                             <strong>₹{calculateTotals().total}</strong>
                           </TableCell>
-                          <TableCell />
                         </TableRow>
                       </>
                     )}
