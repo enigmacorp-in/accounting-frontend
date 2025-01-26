@@ -1,70 +1,66 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Box,
-    Paper,
-    Typography,
-    TextField,
     Button,
+    TextField,
+    Typography,
+    Paper,
     Grid,
-    Alert,
-    CircularProgress,
+    Alert
 } from '@mui/material';
-import { PhotoCamera, Save } from '@mui/icons-material';
-import axios from '@/lib/axios';
+import api from '@/lib/axios';
+import DashboardLayout from '../components/DashboardLayout';
 
 interface BusinessDetails {
     name: string;
+    email: string;
+    phone: string;
+    gstin: string;
+    pan: string;
+    website: string;
     address: {
         street: string;
         city: string;
         state: string;
         pincode: string;
     };
-    phone: string;
-    email: string;
-    website: string;
-    gstin: string;
-    pan: string;
     bankDetails: {
         accountName: string;
         accountNumber: string;
         bankName: string;
+        branchName: string;
         ifscCode: string;
-        branch: string;
     };
-    logo?: string;
     termsAndConditions: string;
 }
 
 export default function BusinessPage() {
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState<string | null>(null);
-    const [businessDetails, setBusinessDetails] = useState<BusinessDetails>({
+    const [formData, setFormData] = useState<BusinessDetails>({
         name: '',
+        email: '',
+        phone: '',
+        gstin: '',
+        pan: '',
+        website: '',
         address: {
             street: '',
             city: '',
             state: '',
             pincode: ''
         },
-        phone: '',
-        email: '',
-        website: '',
-        gstin: '',
-        pan: '',
         bankDetails: {
             accountName: '',
             accountNumber: '',
             bankName: '',
-            ifscCode: '',
-            branch: ''
+            branchName: '',
+            ifscCode: ''
         },
         termsAndConditions: ''
     });
+
+    const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     useEffect(() => {
         fetchBusinessDetails();
@@ -72,362 +68,257 @@ export default function BusinessPage() {
 
     const fetchBusinessDetails = async () => {
         try {
-            const response = await axios.get('/business');
-            setBusinessDetails(response.data);
-            setError(null);
-        } catch (err: any) {
-            if (err.response?.status !== 404) {
-                setError('Failed to load business details');
+            const response = await api.get('/business');
+            if (response.data) {
+                setFormData(response.data);
             }
-        } finally {
-            setLoading(false);
+        } catch (error) {
+            console.error('Error fetching business details:', error);
         }
     };
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         if (name.includes('.')) {
-            const [parent, child] = name.split('.');
-            setBusinessDetails(prev => ({
-                ...prev,
-                [parent]: {
-                    ...(prev[parent as keyof BusinessDetails] as any),
-                    [child]: value
-                }
-            }));
+            const [section, field] = name.split('.');
+            if (section === 'address' || section === 'bankDetails') {
+                setFormData(prev => ({
+                    ...prev,
+                    [section]: {
+                        ...prev[section],
+                        [field]: value
+                    }
+                }));
+            }
         } else {
-            setBusinessDetails(prev => ({
+            setFormData(prev => ({
                 ...prev,
                 [name]: name === 'gstin' || name === 'pan' ? value.toUpperCase() : value
             }));
         }
     };
 
-    const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            const reader = new FileReader();
-            
-            reader.onloadend = async () => {
-                try {
-                    setSaving(true);
-                    await axios.patch('/business/logo', { logo: reader.result });
-                    setBusinessDetails(prev => ({
-                        ...prev,
-                        logo: reader.result as string
-                    }));
-                    setSuccess('Logo updated successfully');
-                    setError(null);
-                } catch (err) {
-                    setError('Failed to update logo');
-                } finally {
-                    setSaving(false);
-                }
-            };
-
-            reader.readAsDataURL(file);
-        }
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            setSaving(true);
-            await axios.post('/business', businessDetails);
-            setSuccess('Business details saved successfully');
-            setError(null);
-        } catch (err) {
-            setError('Failed to save business details');
-        } finally {
-            setSaving(false);
+            await api.post('/business', formData);
+            setMessage({ type: 'success', text: 'Business details updated successfully!' });
+        } catch (error) {
+            setMessage({ type: 'error', text: 'Failed to update business details.' });
+            console.error('Error updating business details:', error);
         }
     };
 
-    if (loading) {
-        return (
-            <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
-                <CircularProgress />
-            </Box>
-        );
-    }
-
     return (
-        <Box component="form" onSubmit={handleSubmit} p={3}>
-            <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-                Business Settings
-            </Typography>
+        <DashboardLayout>
+            <Box sx={{ mb: 4 }}>
+                <Typography variant="h4" gutterBottom>
+                    Business Settings
+                </Typography>
 
-            {error && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                    {error}
-                </Alert>
-            )}
+                {message && (
+                    <Alert severity={message.type} sx={{ mb: 2 }}>
+                        {message.text}
+                    </Alert>
+                )}
 
-            {success && (
-                <Alert severity="success" sx={{ mb: 2 }}>
-                    {success}
-                </Alert>
-            )}
-
-            <Grid container spacing={3}>
-                {/* Company Logo */}
-                <Grid item xs={12}>
-                    <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-                        <Typography variant="h6" gutterBottom>
-                            Company Logo
-                        </Typography>
-                        <Box display="flex" alignItems="center" gap={2}>
-                            {businessDetails.logo && (
-                                <img 
-                                    src={businessDetails.logo} 
-                                    alt="Company Logo" 
-                                    style={{ maxWidth: 200, maxHeight: 100 }}
-                                />
-                            )}
-                            <Button
-                                variant="contained"
-                                component="label"
-                                startIcon={<PhotoCamera />}
-                            >
-                                Upload Logo
-                                <input
-                                    type="file"
-                                    hidden
-                                    accept="image/*"
-                                    onChange={handleLogoChange}
-                                />
-                            </Button>
-                        </Box>
-                    </Paper>
-                </Grid>
-
-                {/* Company Details */}
-                <Grid item xs={12}>
-                    <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-                        <Typography variant="h6" gutterBottom>
-                            Company Details
-                        </Typography>
+                <Paper sx={{ p: 4 }}>
+                    <form onSubmit={handleSubmit}>
                         <Grid container spacing={3}>
+                            <Grid item xs={12}>
+                                <Typography variant="h6" gutterBottom>
+                                    Company Logo
+                                </Typography>
+                                <Button variant="contained" component="label">
+                                    Upload Logo
+                                    <input type="file" hidden accept="image/*" />
+                                </Button>
+                            </Grid>
+
+                            <Grid item xs={12}>
+                                <Typography variant="h6" gutterBottom>
+                                    Company Details
+                                </Typography>
+                            </Grid>
+
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="Company Name"
                                     name="name"
-                                    value={businessDetails.name}
+                                    value={formData.name}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="Email"
                                     name="email"
-                                    type="email"
-                                    value={businessDetails.email}
+                                    value={formData.email}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="Phone"
                                     name="phone"
-                                    value={businessDetails.phone}
+                                    value={formData.phone}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="Website"
                                     name="website"
-                                    value={businessDetails.website}
+                                    value={formData.website}
                                     onChange={handleChange}
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="GSTIN"
                                     name="gstin"
-                                    value={businessDetails.gstin}
+                                    value={formData.gstin}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="PAN"
                                     name="pan"
-                                    value={businessDetails.pan}
+                                    value={formData.pan}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-                        </Grid>
-                    </Paper>
-                </Grid>
 
-                {/* Address */}
-                <Grid item xs={12}>
-                    <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-                        <Typography variant="h6" gutterBottom>
-                            Address
-                        </Typography>
-                        <Grid container spacing={3}>
+                            <Grid item xs={12}>
+                                <Typography variant="h6" gutterBottom>
+                                    Address
+                                </Typography>
+                            </Grid>
+
                             <Grid item xs={12}>
                                 <TextField
                                     fullWidth
                                     label="Street Address"
                                     name="address.street"
-                                    value={businessDetails.address.street}
+                                    value={formData.address.street}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={4}>
                                 <TextField
                                     fullWidth
                                     label="City"
                                     name="address.city"
-                                    value={businessDetails.address.city}
+                                    value={formData.address.city}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={4}>
                                 <TextField
                                     fullWidth
                                     label="State"
                                     name="address.state"
-                                    value={businessDetails.address.state}
+                                    value={formData.address.state}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={4}>
                                 <TextField
                                     fullWidth
                                     label="PIN Code"
                                     name="address.pincode"
-                                    value={businessDetails.address.pincode}
+                                    value={formData.address.pincode}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-                        </Grid>
-                    </Paper>
-                </Grid>
 
-                {/* Bank Details */}
-                <Grid item xs={12}>
-                    <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-                        <Typography variant="h6" gutterBottom>
-                            Bank Details
-                        </Typography>
-                        <Grid container spacing={3}>
+                            <Grid item xs={12}>
+                                <Typography variant="h6" gutterBottom>
+                                    Bank Details
+                                </Typography>
+                            </Grid>
+
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="Account Name"
                                     name="bankDetails.accountName"
-                                    value={businessDetails.bankDetails.accountName}
+                                    value={formData.bankDetails.accountName}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={6}>
                                 <TextField
                                     fullWidth
                                     label="Account Number"
                                     name="bankDetails.accountNumber"
-                                    value={businessDetails.bankDetails.accountNumber}
+                                    value={formData.bankDetails.accountNumber}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
                             <Grid item xs={12} md={4}>
                                 <TextField
                                     fullWidth
                                     label="Bank Name"
                                     name="bankDetails.bankName"
-                                    value={businessDetails.bankDetails.bankName}
+                                    value={formData.bankDetails.bankName}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
-
+                            <Grid item xs={12} md={4}>
+                                <TextField
+                                    fullWidth
+                                    label="Branch Name"
+                                    name="bankDetails.branchName"
+                                    value={formData.bankDetails.branchName}
+                                    onChange={handleChange}
+                                />
+                            </Grid>
                             <Grid item xs={12} md={4}>
                                 <TextField
                                     fullWidth
                                     label="IFSC Code"
                                     name="bankDetails.ifscCode"
-                                    value={businessDetails.bankDetails.ifscCode}
+                                    value={formData.bankDetails.ifscCode}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
 
-                            <Grid item xs={12} md={4}>
+                            <Grid item xs={12}>
+                                <Typography variant="h6" gutterBottom>
+                                    Terms and Conditions
+                                </Typography>
                                 <TextField
                                     fullWidth
-                                    label="Branch"
-                                    name="bankDetails.branch"
-                                    value={businessDetails.bankDetails.branch}
+                                    multiline
+                                    rows={4}
+                                    name="termsAndConditions"
+                                    value={formData.termsAndConditions}
                                     onChange={handleChange}
-                                    required
                                 />
                             </Grid>
+
+                            <Grid item xs={12}>
+                                <Button
+                                    type="submit"
+                                    variant="contained"
+                                    color="primary"
+                                    size="large"
+                                >
+                                    Save Changes
+                                </Button>
+                            </Grid>
                         </Grid>
-                    </Paper>
-                </Grid>
-
-                {/* Terms and Conditions */}
-                <Grid item xs={12}>
-                    <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-                        <Typography variant="h6" gutterBottom>
-                            Terms and Conditions
-                        </Typography>
-                        <TextField
-                            fullWidth
-                            multiline
-                            rows={4}
-                            label="Terms and Conditions"
-                            name="termsAndConditions"
-                            value={businessDetails.termsAndConditions}
-                            onChange={handleChange}
-                        />
-                    </Paper>
-                </Grid>
-
-                {/* Submit Button */}
-                <Grid item xs={12}>
-                    <Button
-                        type="submit"
-                        variant="contained"
-                        color="primary"
-                        size="large"
-                        disabled={saving}
-                        startIcon={saving ? <CircularProgress size={20} /> : <Save />}
-                    >
-                        {saving ? 'Saving...' : 'Save Details'}
-                    </Button>
-                </Grid>
-            </Grid>
-        </Box>
+                    </form>
+                </Paper>
+            </Box>
+        </DashboardLayout>
     );
 } 

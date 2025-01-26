@@ -19,24 +19,8 @@ export default function RootLayout({
           <ThemeProvider theme={theme}>
             <CssBaseline />
             <Box sx={{ display: 'flex' }}>
-              <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-                <Toolbar>
-                  <Typography variant="h6" noWrap component="div">
-                    Indian Accounting Software
-                  </Typography>
-                </Toolbar>
-              </AppBar>
               <Sidebar />
-              <Box
-                component="main"
-                sx={{
-                  flexGrow: 1,
-                  p: 3,
-                  mt: 8,
-                  minHeight: '100vh',
-                  backgroundColor: (theme) => theme.palette.grey[100],
-                }}
-              >
+              <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 8 }}>
                 {children}
               </Box>
             </Box>
